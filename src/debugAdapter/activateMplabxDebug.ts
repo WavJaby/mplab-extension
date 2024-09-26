@@ -223,6 +223,7 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 				stopOnEntry: args.stopOnEntry,
 				preLaunchTask: args.preLaunchOnRestart ? args.preLaunchTask : null,
 				preLaunchOnRestart: args.preLaunchOnRestart,
+				runMdbAsServer: args.runMdbAsServer,
 			};
 
 		} else {
