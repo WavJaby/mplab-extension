@@ -21,8 +21,7 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { basename } from 'path-browserify';
 import { Subject } from 'await-notify';
-import { FileAccessor } from '../common/FileAccessor';
-import { IVariable, MDBCommunications } from './mdbCommunications';
+import { MDBCommunications } from './mdbCommunications';
 import { MPLABXPaths } from '../common/mplabPaths';
 
 /**
@@ -56,7 +55,7 @@ export class MdbDebugSession extends LoggingDebugSession {
 	// a Mock runtime (or debugger)
 	protected _runtime: MDBCommunications;
 
-	private _variableHandles = new Handles<'locals' | 'parameters'>();
+	private _variableHandles = new Handles<'locals' | 'parameters' | 'registers'>();
 
 	private _stopOnEntry: boolean = false;
 
@@ -369,6 +368,10 @@ export class MdbDebugSession extends LoggingDebugSession {
 			scopes = scopes.concat(new Scope("Locals", this._variableHandles.create('locals'), false));
 		}
 
+		if (this._runtime.hasRegisters) {
+			scopes = scopes.concat(new Scope("Registers", this._variableHandles.create('registers'), false));
+		}
+
 		if (this._runtime.hasParameters) {
 			scopes = scopes.concat(new Scope("Parameters", this._variableHandles.create('parameters'), false));
 		}
@@ -419,17 +422,19 @@ export class MdbDebugSession extends LoggingDebugSession {
 
 	protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
 
-		let vs: IVariable[] = [];
+		let vs: DebugProtocol.Variable[] = [];
 
 		const v = this._variableHandles.get(args.variablesReference);
 		if (v === 'locals') {
 			vs = await this._runtime.getLocalVariables();
+		} else if (v === 'registers') {
+			vs = await this._runtime.getRegisters();
 		} else if (v === 'parameters') {
 			vs = await this._runtime.getParameters();
 		}
 
 		response.body = {
-			variables: [...vs.map(v => new Variable(v.name, v.value.toString()))]
+			variables: vs
 		};
 
 		this.sendResponse(response);
@@ -711,6 +716,7 @@ export class MdbDebugSession extends LoggingDebugSession {
 		// if (args.progressId) {
 		// 	this._cancelledProgressId = args.progressId;
 		// }
+		this.sendResponse(response);
 	}
 
 	// protected disassembleRequest(response: DebugProtocol.DisassembleResponse, args: DebugProtocol.DisassembleArguments) {
