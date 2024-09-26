@@ -121,6 +121,7 @@ export class MDBCommunications extends EventEmitter {
 
 	private _breakpoints: IBreakpoint[] = [];
 	private _haltReason: HaltReason = HaltReason.none;
+	private _lastStop?: [string, number];
 
 	private _connectionLevel: ConnectionLevel = ConnectionLevel.none;
 
@@ -154,20 +155,26 @@ export class MDBCommunications extends EventEmitter {
 		// (Windows Compatibility) Trim off quotes if there are any
 		mdbPath = mdbPath.replace(/"/g, "",);
 
-		this._mdbProcess = spawn(mdbPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+		this._mdbProcess = spawn('"' + mdbPath + '"', [], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
 		this.logLine(`--- Started Microchip Debugger ---`, LogLevel.info);
 
 		this._mdbProcess.stderr?.on('data', (error) => {
 			debug(`MDB ERROR -> ${error}`);
 		});
 
+		let msgPart: string = '';
 		this._mdbProcess.stdout?.on('data', async (data: String) => {
 			let d: string = `${data}`;
 			this.log(d, LogLevel.read);
 
-			if (d.match(/Stop at/g)) {
-				this.handleStopAt(d);
+			msgPart += d;
+			if (msgPart.match(/Stop at/g)) {
+				// Return if message not complete
+				if (await this.handleStopAt(msgPart))
+					return;
 			}
+			// Reset message part
+			msgPart = '';
 		});
 
 		this._mdbProcess.on('close', (code) => {
@@ -251,35 +258,34 @@ export class MDBCommunications extends EventEmitter {
 
 	/**
 	 * Handles a "Stop at" message from output. Swallows responses until entirety of "Stop at" message has been chunked out
-	 * @param initialMessage The initial message containing "Stop at" and potentially more of the data
+	 * @param message The "Stop at" message
 	 */
-	private async handleStopAt(initialMessage: string): Promise<void> {
-		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
-		if (this._haltReason !== HaltReason.none) {
-			const eventToDispatch = haltReasonEventMap[this._haltReason];
-			this.emit(eventToDispatch);
-			return; // Early return, as stopAt otherwise checks exceptions and breakpoints
-		}
-
+	private async handleStopAt(message: string): Promise<boolean> {
 		// const addressRegex = /address:(?<address>0x[0-9a-fA-F]{2,8})/gm;
 		const fileRegex = /file:(?<file>.+)/gm;
 		const lineRegex = /source line:(?<line>\d+)/gm;
 
-		let message = initialMessage;
 		let matches = message.match(lineRegex);
 
 		// Stop at message may or may not come in a single data or over multiple. 
 		// If we don't match the pattern, we need to keep reading and re-parse when a full message has been received.
 		if ((matches?.length || 0) < 1) {
-			const remainingResult = await this.readResult();
-			message += remainingResult;
+			return true;
 		}
 
 		// const _address = addressRegex.exec(message)?.groups?.address;
 		const file = fileRegex.exec(message)?.groups?.file;
 		const line = parseInt(lineRegex.exec(message)?.groups?.line || '-1', 10);
 
-		if (!file || line < 0) { return; };
+		if (!file || line < 0) { return false; };
+		this._lastStop = [file, line];
+
+		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
+		if (this._haltReason !== HaltReason.none) {
+			const eventToDispatch = haltReasonEventMap[this._haltReason];
+			this.emit(eventToDispatch);
+			return false; // Early return, as stopAt otherwise checks exceptions and breakpoints
+		}
 
 		// Find potential breakpoint based on file name and line - if this does not exist, it must be an exception.
 		const breakpoint = this._breakpoints.find(bp => (normalizePath(bp.file) === normalizePath(file)) && bp.line === line);
@@ -288,6 +294,7 @@ export class MDBCommunications extends EventEmitter {
 		}
 
 		this.emit('stopOnBreakpoint');
+		return false;
 	}
 
 	/** Sends a command to the Microchip Debugger and returns the whole response
