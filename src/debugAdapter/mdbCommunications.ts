@@ -4,6 +4,7 @@
 
 'use strict';
 import { ChildProcess, spawn } from 'child_process';
+import { DebugProtocol } from '@vscode/debugprotocol';
 import { Mutex } from 'async-mutex';
 import path = require('path');
 import fs = require('fs');
@@ -78,13 +79,6 @@ export interface ISetWatchResponse {
 	id: number;
 	verified: boolean;
 	message: string;
-}
-
-export interface IVariable {
-	name: string;
-	value: number;
-	indexChildren?: IVariable[];
-	namedChildren?: IVariable[];
 }
 
 export interface ILogWriter {
@@ -493,66 +487,99 @@ export class MDBCommunications extends EventEmitter {
 		});
 	}
 
-	private lastLocals: Array<IVariable> | undefined;
-	private lastParameters: Array<IVariable> | undefined;
+	private lastLocals: Array<DebugProtocol.Variable> = [];
+	private lastRegisters: Array<DebugProtocol.Variable> = [];
+	private lastParameters: Array<DebugProtocol.Variable> = [];
 	public async getStack(): Promise<Array<IGetStackResponse> | void> {
 
-		return this.query('backtrace full', ConnectionLevel.programed).then(response => {
+		return this.query('backtrace full', ConnectionLevel.programed).then(async response => {
 
 			let localsMatches = [...response.matchAll(/\s+(\w+) = 0x(\d+)/g)];
 
 			this.lastLocals = localsMatches.map((m, i) => {
 				return {
 					name: m[1],
-					value: parseInt(m[2], 16),
+					value: m[2],
+					variablesReference: 0,
 				};
 			});
+			const regs = ['WREG', 'FSR0', 'FSR1', 'FSR2'];
+			this.lastRegisters = [];
+			for (const regName of regs) {
+				const regVal = (await this.query('Print /x ' + regName, ConnectionLevel.programed)).match(/(\w+)=([0-9a-f]+)/);
+				if (regVal?.length === 3)
+					this.lastRegisters.push({
+						name: regName,
+						value: '0x' + regVal[2],
+						presentationHint: { kind: 'data' },
+						variablesReference: 0,
+					});
+			}
+			// TODO: https://marketplace.visualstudio.com/items?itemName=mcu-debug.memory-view
 
 			let parametersMatch = [...response.matchAll(/\s+(\w+)=0x(\d+)/g)];
 
 			this.lastParameters = parametersMatch.map((m, i) => {
 				return {
 					name: m[1],
-					value: parseInt(m[2], 16),
+					value: m[2],
+					presentationHint: { kind: 'data' },
+					variablesReference: 0,
 				};
 			});
 
-			let stackMatches = [...response.matchAll(/#(\d+)\s+([a-zA-z0-9_ ]*) \(\) at\s(.*?):(\d+)/g)];
-
-			return stackMatches.map((m, i) => {
-				return {
-					index: parseInt(m[1]),
+			const stackMatches = [...response.matchAll(/#(\d+)\s+([a-zA-z0-9_. ]*) \(\) at\s(.*?):(\d+)/g)];
+			const stack: IGetStackResponse[] = [];
+			for (let i = 0; i < stackMatches.length; i++) {
+				const m = stackMatches[i];
+				let index = parseInt(m[1]);
+				let filePath = m[3];
+				let line = parseInt(m[4]);
+				if (!filePath && this._lastStop) {
+					filePath = this._lastStop[0];
+					line = this._lastStop[1];
+				}
+				stack[i] = {
+					index: index,
 					name: m[2],
-					file: m[3],
-					line: parseInt(m[4])
+					file: filePath,
+					line: line
 				};
-			});
+			}
+			// When using old mplab, backtrace maybe empty
+			if (stackMatches.length === 0 && this._lastStop)
+				return [{
+					index: 0,
+					name: 'Unknown',
+					file: this._lastStop[0],
+					line: this._lastStop[1]
+				}];
+			return stack;
 		});
 	}
 
+public get hasRegisters(): boolean {
+		return this.lastRegisters.length > 0;
+	}
 
 	public get hasLocalVariables(): boolean {
-		if (this.lastLocals && this.lastLocals.length) {
 			return this.lastLocals.length > 0;
-		}
-		return false;
 	}
 
 	public get hasParameters(): boolean {
-		if (this.lastParameters && this.lastParameters.length) {
 			return this.lastParameters.length > 0;
 		}
-		return false;
+
+	public async getRegisters(): Promise<Array<DebugProtocol.Variable>> {
+		return this.lastRegisters;
 	}
 
-	public async getLocalVariables(): Promise<Array<IVariable>> {
-
-		return this.lastLocals ? this.lastLocals : [];
+	public async getLocalVariables(): Promise<Array<DebugProtocol.Variable>> {
+		return this.lastLocals;
 	}
 
-	public async getParameters(): Promise<Array<IVariable>> {
-
-		return this.lastParameters ? this.lastParameters : [];
+	public async getParameters(): Promise<Array<DebugProtocol.Variable>> {
+		return this.lastParameters;
 	}
 
 	public run(): void {
@@ -615,7 +642,7 @@ export class MDBCommunications extends EventEmitter {
 		});
 	}
 
-	public async printVariable(name: string): Promise<IVariable | undefined> {
+	public async printVariable(name: string): Promise<DebugProtocol.Variable | undefined> {
 
 		const hexMatch = name.match(/^0x([\dA-Fa-f]+)$/);
 		if (hexMatch) {
@@ -628,7 +655,8 @@ export class MDBCommunications extends EventEmitter {
 			if (re) {
 				return {
 					name: re[1],
-					value: parseFloat(re[2]),
+					value: re[2],
+					variablesReference: 0,
 				};
 			} else {
 				return undefined;
