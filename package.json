@@ -142,8 +142,6 @@
           "asm"
         ],
         "label": "MPLABX Debug",
-        "program": "./out/mdbDebugAdapter.js",
-        "runtime": "node",
         "configurationAttributes": {
           "launch": {
             "required": [
@@ -172,6 +170,14 @@
               "debug": {
                 "type": "boolean",
                 "description": "Boolean indicating debug build or production build"
+              },
+              "oldFileType": {
+                "type": "boolean",
+                "description": "True if using old MPLAB v5.2.X"
+              },
+              "preLaunchOnRestart": {
+                "type": "boolean",
+                "description": "Boolean indicating whether to build when the debugger restarts"
               }
             }
           }
@@ -216,8 +222,6 @@
           "asm"
         ],
         "label": "Microchip Debug Adapter",
-        "program": "./out/mdbDebugAdapter.js",
-        "runtime": "node",
         "configurationAttributes": {
           "launch": {
             "required": [

@@ -42,6 +42,10 @@ export interface MplabxDebugConfiguration extends DebugConfiguration {
 	debug?: boolean;
 	/** A task to run before running the debugger */
 	preLaunchTask?: string;
+	/** Boolean indicating whether to build when the debugger restarts */
+	preLaunchOnRestart?: boolean;
+	/** Boolean using old file type '.cof' */
+	oldFileType?: boolean;
 }
 
 /**
@@ -153,19 +157,18 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 	// Find the elf
 	let outputFolder = path.join(args.program, 'dist', targetConfig.configurationName, args.debug ? 'debug' : 'production');
 
-	const fileType: string = '.elf';
+	const fileType: string = args.oldFileType ? '.cof' : '.elf';
 
 	// The output folder might not exist yet because the preLaunchTask hasn't ran yet
 	if (args.preLaunchTask) {
 		const task = (await vscode.tasks.fetchTasks()).find((t => t.name === args.preLaunchTask));
-
 		if (task) {
 			const taskExecution = await vscode.tasks.executeTask(task);
-			await waitForTaskCompletion(taskExecution);
-
-			// Undefine the task so that it doesn't get ran again
-			args.preLaunchTask = undefined;
-		}
+			const exitCode = await waitForTaskCompletion(taskExecution);
+			if (exitCode !== 0)
+				throw new Error(`Build task end with code: ${exitCode}`);
+		} else
+			throw new Error(`PreLaunchTask label "${args.preLaunchTask}" not found in tasks.json`);
 	}
 
 	if (fs.existsSync(outputFolder)) {
@@ -215,7 +218,9 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 				toolType: mdbTool,
 				filePath: path.join(outputFolder, outputFile),
 				toolOptions: toolOptions,
-				stopOnEntry: args.stopOnEntry
+				stopOnEntry: args.stopOnEntry,
+				preLaunchTask: args.preLaunchOnRestart ? args.preLaunchTask : null,
+				preLaunchOnRestart: args.preLaunchOnRestart,
 			};
 
 		} else {
