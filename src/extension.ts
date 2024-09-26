@@ -24,6 +24,7 @@ import { MPLABXAssistant, MpMakeTaskDefinition, MpToolTaskDefinition } from './m
 import { MPLABXPaths } from './common/mplabPaths';
 import { MDBCommunications } from './debugAdapter/mdbCommunications';
 import { waitForTaskCompletion } from './common/taskHelpers';
+import { MplabxDebugConfiguration } from './debugAdapter/activateMplabxDebug';
 
 /*
  * The compile time flag 'runMode' controls how the debug adapter is run.
@@ -34,6 +35,8 @@ const runMode: 'external' | 'server' | 'namedPipeServer' | 'inline' = 'server';
 const mplabxAssistant = new MPLABXAssistant();
 
 const mplabxPaths = new MPLABXPaths();
+
+const mdbDebugSession: Map<string, MdbDebugSession> = new Map();
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -146,6 +149,10 @@ export function activate(context: vscode.ExtensionContext) {
 				}), { title: title ?? 'MDB: Attached Tools' });
 		}),
 
+		vscode.commands.registerCommand('vslabx.killAllMdb', title => {
+			killAllMdbProcess();
+		}),
+
 		vscode.tasks.registerTaskProvider('mplabx', {
 			provideTasks(token?: vscode.CancellationToken) {
 				return [];
@@ -198,6 +205,12 @@ async function selectMplabxProjectFolder(): Promise<string | undefined> {
 }
 
 export function deactivate() {
+	killAllMdbProcess();
+}
+
+function killAllMdbProcess() {
+	mdbDebugSession.forEach((v, k) => v.shutdown(true));
+	mdbDebugSession.clear();
 }
 
 class MdbDebugAdapterServerDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
@@ -205,24 +218,29 @@ class MdbDebugAdapterServerDescriptorFactory implements vscode.DebugAdapterDescr
 	private server?: Net.Server;
 
 	createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-
+		// TODO: Figure out how to close debugSession properly
 		if (!this.server) {
 			// start listening on a random port
 			this.server = Net.createServer(socket => {
-				const session = new MdbDebugSession();
-				session.setRunAsServer(true);
-				session.start(socket as NodeJS.ReadableStream, socket);
+				let debugSession: MdbDebugSession;
+				const configArgs = session.configuration as MplabxDebugConfiguration;
+				if (configArgs.type === 'mdb' && configArgs.runMdbAsServer) {
+					let d = mdbDebugSession.get(session.name);
+					if (!d)
+						mdbDebugSession.set(session.name, d = new MdbDebugSession());
+					debugSession = d;
+				debugSession.setRunAsServer(true);
+				} else {
+					debugSession = new MdbDebugSession();
+					debugSession.setRunAsServer(false);
+				}
+
+				debugSession.start(socket as NodeJS.ReadableStream, socket);
 			}).listen(0);
 		}
 
 		// make VS Code connect to debug server
 		return new vscode.DebugAdapterServer((this.server.address() as Net.AddressInfo).port);
-	}
-
-	dispose() {
-		if (this.server) {
-			this.server.close();
-		}
 	}
 }
 

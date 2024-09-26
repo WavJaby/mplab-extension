@@ -121,6 +121,10 @@ export class MDBCommunications extends EventEmitter {
 
 	private _emitter: EventEmitter = new EventEmitter();
 
+	public isDisposed(): boolean {
+		return this.disposed;
+	}
+
 	private get connectionLevel(): ConnectionLevel {
 		return this._connectionLevel;
 	}

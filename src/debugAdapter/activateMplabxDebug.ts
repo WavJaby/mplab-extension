@@ -42,10 +42,12 @@ export interface MplabxDebugConfiguration extends DebugConfiguration {
 	debug?: boolean;
 	/** A task to run before running the debugger */
 	preLaunchTask?: string;
-	/** Boolean indicating whether to build when the debugger restarts */
+	/** Boolean indicating whether to execute task when the debugger is restarted */
 	preLaunchOnRestart?: boolean;
-	/** Boolean using old file type '.cof' */
+	/** Boolean indicating whether to use older file type '.cof' */
 	oldFileType?: boolean;
+	/** Boolean indicates whether to enable mdb server mode. (It can reduce mdb starting time) */
+	runMdbAsServer?: boolean;
 }
 
 /**
