@@ -60,6 +60,10 @@
       {
         "command": "vslabx.listAttachedTools",
         "title": "MDB: List Attached Tools"
+      },
+      {
+        "command": "vslabx.killAllMdb",
+        "title": "MPLABX: Kill all mdb debug server"
       }
     ],
     "breakpoints": [
@@ -171,13 +175,17 @@
                 "type": "boolean",
                 "description": "Boolean indicating debug build or production build"
               },
+              "preLaunchOnRestart": {
+                "type": "boolean",
+                "description": "Boolean indicating whether to execute task when the debugger is restarted"
+              },
               "oldFileType": {
                 "type": "boolean",
                 "description": "True if using old MPLAB v5.2.X"
               },
-              "preLaunchOnRestart": {
+              "runMdbAsServer": {
                 "type": "boolean",
-                "description": "Boolean indicating whether to build when the debugger restarts"
+                "description": "Boolean indicates whether to enable mdb server mode. (It can reduce mdb starting time)"
               }
             }
           }

@@ -786,8 +786,14 @@ export class MdbDebugSession extends LoggingDebugSession {
 	// }
 
 	protected disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments, request?: DebugProtocol.Request): void {
-		this._runtime.quit();
+		this.shutdown();
 		this.sendResponse(response);
+	}
+
+	shutdown(force: boolean = false) {
+		if (force || !this._isServer && !this._isRunningInline() && !this._runtime.isDisposed())
+			this._runtime.quit();
+		super.shutdown();
 	}
 
 	//---- helpers
