@@ -167,12 +167,14 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 		if (task) {
 			const taskExecution = await vscode.tasks.executeTask(task);
 			const exitCode = await waitForTaskCompletion(taskExecution);
-			if (exitCode !== 0)
+			if (exitCode !== 0) {
 				throw new Error(`Build task end with code: ${exitCode}`);
-		} else
+			}
+		} else {
 			throw new Error(`PreLaunchTask label "${args.preLaunchTask}" not found in tasks.json`);
+		}
 	}
-
+	
 	if (fs.existsSync(outputFolder)) {
 		let outputFiles = fs.readdirSync(outputFolder, { withFileTypes: true })
 			.filter(item => item.isFile())

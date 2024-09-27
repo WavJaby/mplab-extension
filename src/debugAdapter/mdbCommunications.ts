@@ -153,7 +153,7 @@ export class MDBCommunications extends EventEmitter {
 		// (Windows Compatibility) Trim off quotes if there are any
 		mdbPath = mdbPath.replace(/"/g, "",);
 
-		this._mdbProcess = spawn('"' + mdbPath + '"', [], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+		this._mdbProcess = spawn(`"${mdbPath}"`, [], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
 		this.logLine(`--- Started Microchip Debugger ---`, LogLevel.info);
 
 		this._mdbProcess.stderr?.on('data', (error) => {
@@ -168,8 +168,9 @@ export class MDBCommunications extends EventEmitter {
 			msgPart += d;
 			if (msgPart.match(/Stop at/g)) {
 				// Return if message not complete
-				if (await this.handleStopAt(msgPart))
+				if (await this.handleStopAt(msgPart)) {
 					return;
+				}
 			}
 			// Reset message part
 			msgPart = '';
@@ -511,13 +512,14 @@ export class MDBCommunications extends EventEmitter {
 			this.lastRegisters = [];
 			for (const regName of regs) {
 				const regVal = (await this.query('Print /x ' + regName, ConnectionLevel.programed)).match(/(\w+)=([0-9a-f]+)/);
-				if (regVal?.length === 3)
+				if (regVal?.length === 3) {
 					this.lastRegisters.push({
 						name: regName,
 						value: '0x' + regVal[2],
 						presentationHint: { kind: 'data' },
 						variablesReference: 0,
 					});
+				}
 			}
 			// TODO: https://marketplace.visualstudio.com/items?itemName=mcu-debug.memory-view
 
@@ -551,18 +553,20 @@ export class MDBCommunications extends EventEmitter {
 				};
 			}
 			// When using old mplab, backtrace maybe empty
-			if (stackMatches.length === 0 && this._lastStop)
+			if (stackMatches.length === 0 && this._lastStop) {
 				return [{
 					index: 0,
 					name: 'Unknown',
 					file: this._lastStop[0],
 					line: this._lastStop[1]
 				}];
+			}
+
 			return stack;
 		});
 	}
 
-public get hasRegisters(): boolean {
+	public get hasRegisters(): boolean {
 		return this.lastRegisters.length > 0;
 	}
 
@@ -572,7 +576,7 @@ public get hasRegisters(): boolean {
 
 	public get hasParameters(): boolean {
 			return this.lastParameters.length > 0;
-		}
+	}
 
 	public async getRegisters(): Promise<Array<DebugProtocol.Variable>> {
 		return this.lastRegisters;

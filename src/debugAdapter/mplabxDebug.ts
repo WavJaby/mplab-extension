@@ -791,8 +791,9 @@ export class MdbDebugSession extends LoggingDebugSession {
 	}
 
 	shutdown(force: boolean = false) {
-		if (force || !this._isServer && !this._isRunningInline() && !this._runtime.isDisposed())
+		if (force || !this._isServer && !this._isRunningInline() && !this._runtime.isDisposed()) {
 			this._runtime.quit();
+		}
 		super.shutdown();
 	}
 

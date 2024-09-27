@@ -224,17 +224,16 @@ class MdbDebugAdapterServerDescriptorFactory implements vscode.DebugAdapterDescr
 			this.server = Net.createServer(socket => {
 				let debugSession: MdbDebugSession;
 				const configArgs = session.configuration as MplabxDebugConfiguration;
+				
 				if (configArgs.type === 'mdb' && configArgs.runMdbAsServer) {
-					let d = mdbDebugSession.get(session.name);
-					if (!d)
-						mdbDebugSession.set(session.name, d = new MdbDebugSession());
-					debugSession = d;
-				debugSession.setRunAsServer(true);
+					debugSession = mdbDebugSession.get(session.name) ?? new MdbDebugSession();
+					mdbDebugSession.set(session.name, debugSession);
+					debugSession.setRunAsServer(true);
 				} else {
 					debugSession = new MdbDebugSession();
 					debugSession.setRunAsServer(false);
 				}
-
+				
 				debugSession.start(socket as NodeJS.ReadableStream, socket);
 			}).listen(0);
 		}
