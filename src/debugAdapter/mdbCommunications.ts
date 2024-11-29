@@ -37,6 +37,13 @@ export const haltReasonEventMap = {
 	[HaltReason.halt]: "stopOnPause"
 } as const;
 
+export interface IUserPrompt {
+	title: string,
+	message: string,
+	options: string[],
+	callBack: (string) => void
+}
+
 export interface IConnectResult {
 	success: boolean,
 	message: string,
@@ -416,8 +423,15 @@ export class MDBCommunications extends EventEmitter {
 
 		let result: ConnectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
 
-		if (result === ConnectionType.hardware && !message.match(/Target device (.+) found\./)) {
-			throw new Error(`Failed to connect to target device ${message.replace(/^\>+|\>+$/g, '').trim()}`);
+		if (result === ConnectionType.hardware) {
+			// MDB is asking a question, wait for the user to respond
+			while (message.match(/\?/)) {
+				message = await this.readResult();
+			} 
+			
+			if (!message.match(/Target device (.+) found\./)) {
+				throw new Error(`Failed to connect to target device ${message.replace(/^\>+|\>+$/g, '').trim()}`);
+			}
 		}
 
 		this.connectionLevel = ConnectionLevel.connected;
