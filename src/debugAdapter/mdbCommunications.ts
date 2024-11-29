@@ -292,9 +292,16 @@ export class MDBCommunications extends EventEmitter {
 
 	/** Sends a command to the Microchip Debugger and returns the whole response
 	 * @param input The command to send to the debugger
+	 */
+	async query(input: string): Promise<string> {
+		return this._query(input, this.connectionLevel);
+	}
+
+	/** Sends a command to the Microchip Debugger and returns the whole response
+	 * @param input The command to send to the debugger
 	 * @param level The ConnectionLevel required in order for the command to work
 	 */
-	async query(input: string, level: ConnectionLevel, until: string = '>'): Promise<string> {
+	private async _query(input: string, level: ConnectionLevel, until: string = '>'): Promise<string> {
 
 		if (this.connectionLevel >= level) {
 			return this._mdbMutex.runExclusive(() => {
@@ -313,7 +320,7 @@ export class MDBCommunications extends EventEmitter {
 				this._emitter.on('cancel', reject);
 
 				this.once(level.toString(), () => {
-					this.query(input, level, until).then(v => resolve);
+					this._query(input, level, until).then(v => resolve);
 				});
 
 				this._emitter.off('cancel', reject);
@@ -324,7 +331,7 @@ export class MDBCommunications extends EventEmitter {
 	/** Gets a list of all the attached hardware tools that can program */
 	public async getAttachedProgramers(): Promise<IProgramerInformation[]> {
 
-		return this.query("HwTool", ConnectionLevel.none).then((value) => {
+		return this._query("HwTool", ConnectionLevel.none).then((value) => {
 
 			let lines: string[] = value.split('\n');
 
@@ -362,7 +369,7 @@ export class MDBCommunications extends EventEmitter {
 
 	/** Gets a list of all supported hardware tools that can be used */
 	public async getSupportedProgramers(): Promise<ISupportedProgramerInformation[]> {
-		return this.query("HwTool Supported", ConnectionLevel.none).then((value) => {
+		return this._query("HwTool Supported", ConnectionLevel.none).then((value) => {
 
 			let lines: string[] = value.split('\n');
 
@@ -395,16 +402,16 @@ export class MDBCommunications extends EventEmitter {
 		// Apply all the tool settings
 		if (toolSetOptions) {
 			for (const [key, value] of Object.entries(toolSetOptions)) {
-				this.query(`set ${key} ${value}`, ConnectionLevel.deviceSet);
+				this._query(`set ${key} ${value}`, ConnectionLevel.deviceSet);
 			};
 		}
 
 		// Connect to the tools
-		let message: string = await this.query(`HwTool ${toolSet}${programMode ? ' -p' : ''}`, ConnectionLevel.deviceSet, '>');
+		let message: string = await this._query(`HwTool ${toolSet}${programMode ? ' -p' : ''}`, ConnectionLevel.deviceSet, '>');
 
 		// If message is just the default > output, keep reading. On different platforms, \r\n> may be the case, but we're looking for a longer string anyway.
-		if (message.length < 8) {
-			message = await this.readResult('>');
+		while (message.length < 8) {
+			message = await this.readResult();
 		}
 
 		let result: ConnectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
@@ -426,7 +433,7 @@ export class MDBCommunications extends EventEmitter {
 
 		return this.connect(targetDevice, toolSet, false, toolSetOptions).then(async (connectionType) => {
 			// Program the chip
-			const programResult = await this.query(`Program "${elfFile}"`, ConnectionLevel.connected);
+			const programResult = await this._query(`Program "${elfFile}"`, ConnectionLevel.connected);
 			if (programResult.match(/Program succeeded\./) || programResult.match(/Programming\/Verify complete/)) {
 
 				this.connectionLevel = ConnectionLevel.programed;
@@ -441,20 +448,20 @@ export class MDBCommunications extends EventEmitter {
 	}
 
 	public clearBreakpoints() {
-		this.query('delete', ConnectionLevel.programed).then(() => {
+		this._query('delete', ConnectionLevel.programed).then(() => {
 			this._breakpoints = [];
 		});
 	}
 
 	public clearBreakpoint(id: number) {
-		this.query(`delete ${id}`, ConnectionLevel.programed).then(() => {
+		this._query(`delete ${id}`, ConnectionLevel.programed).then(() => {
 			this._breakpoints = this._breakpoints.filter(bp => bp.id !== id);
 		});
 	}
 
 	public async setBreakpoint(file: string, line: bigint): Promise<ISetBreakpointResponse> {
 
-		return this.query(`break ${path.basename(file)}:${line}`, ConnectionLevel.programed).then(response => {
+		return this._query(`break ${path.basename(file)}:${line}`, ConnectionLevel.programed).then(response => {
 			let r = response.match(/Breakpoint (\d+) at file (.+), line (\d+)\./s);
 
 			if (!r) { return { id: -1, line: -1, verified: false, file }; };
@@ -469,7 +476,7 @@ export class MDBCommunications extends EventEmitter {
 
 	public async getBreakpoints(): Promise<Array<IGetBreakpointResponse> | void> {
 
-		return this.query('info break', ConnectionLevel.programed).then(response => {
+		return this._query('info break', ConnectionLevel.programed).then(response => {
 			let re = [...response.matchAll(/(\d+)\s*(y|n)\s*(0x[\dA-F]+)\s*at (.*):(\d+)/g)];
 
 			return re.forEach((m, i) => {
@@ -490,7 +497,7 @@ export class MDBCommunications extends EventEmitter {
 	private lastParameters: Array<IVariable> | undefined;
 	public async getStack(): Promise<Array<IGetStackResponse> | void> {
 
-		return this.query('backtrace full', ConnectionLevel.programed).then(response => {
+		return this._query('backtrace full', ConnectionLevel.programed).then(response => {
 
 			let localsMatches = [...response.matchAll(/\s+(\w+) = 0x(\d+)/g)];
 
@@ -589,7 +596,7 @@ export class MDBCommunications extends EventEmitter {
 			command += ` ${passCount}`;
 		}
 
-		return this.query(command, ConnectionLevel.programed).then(response => {
+		return this._query(command, ConnectionLevel.programed).then(response => {
 			let re = response.match(/Watchpoint (\d+)\./);
 
 			if (re) {
@@ -615,7 +622,7 @@ export class MDBCommunications extends EventEmitter {
 			name = parseInt(hexMatch[1]).toString();
 		}
 
-		return this.query(`Print ${name}`, ConnectionLevel.programed).then(response => {
+		return this._query(`Print ${name}`, ConnectionLevel.programed).then(response => {
 			const re = response.match(/(\w+)=\n?(\d+)/);
 
 			if (re) {

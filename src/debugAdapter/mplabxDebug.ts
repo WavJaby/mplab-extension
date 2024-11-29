@@ -498,39 +498,14 @@ export class MdbDebugSession extends LoggingDebugSession {
 		let rv: Variable | undefined;
 
 		switch (args.context) {
-			// case 'repl':
-			// 	// handle some REPL commands:
-			// 	// 'evaluate' supports to create and delete breakpoints from the 'repl':
-			// 	const matches = /new +([0-9]+)/.exec(args.expression);
-			// 	if (matches && matches.length === 2) {
-			// 		const mbp = await this._runtime.setBreakpoint(this._runtime.sourceFile, this.convertClientLineToDebugger(parseInt(matches[1])));
-			// 		const bp = new Breakpoint(mbp.verified, this.convertDebuggerLineToClient(mbp.line), undefined, this.createSource(this._runtime.sourceFile)) as DebugProtocol.Breakpoint;
-			// 		bp.id = mbp.id;
-			// 		this.sendEvent(new BreakpointEvent('new', bp));
-			// 		reply = `breakpoint created`;
-			// 	} else {
-			// 		const matches = /del +([0-9]+)/.exec(args.expression);
-			// 		if (matches && matches.length === 2) {
-			// 			const mbp = this._runtime.clearBreakPoint(this._runtime.sourceFile, this.convertClientLineToDebugger(parseInt(matches[1])));
-			// 			if (mbp) {
-			// 				const bp = new Breakpoint(false) as DebugProtocol.Breakpoint;
-			// 				bp.id = mbp.id;
-			// 				this.sendEvent(new BreakpointEvent('removed', bp));
-			// 				reply = `breakpoint deleted`;
-			// 			}
-			// 		} else {
-			// 			const matches = /progress/.exec(args.expression);
-			// 			if (matches && matches.length === 1) {
-			// 				if (this._reportProgress) {
-			// 					reply = `progress started`;
-			// 					this.progressSequence();
-			// 				} else {
-			// 					reply = `frontend doesn't support progress (capability 'supportsProgressReporting' not set)`;
-			// 				}
-			// 			}
-			// 		}
-			// 	}
-			// fall through
+			case 'repl':
+				// handle some REPL commands:
+				// REPL commands are entered via the "Debug Console"
+				this._runtime.query(args.expression).then(response => {
+					// No action is needed as the communications will auto print the message
+				});
+
+				return;
 
 			case 'hover':
 			case 'watch':
