@@ -12,6 +12,7 @@
 
 import {
 	// Logger, logger,
+	Event,
 	LoggingDebugSession,
 	InitializedEvent, StoppedEvent, OutputEvent,
 	Thread, StackFrame, Scope, Source, Handles, Breakpoint, Variable,
@@ -21,9 +22,18 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { basename } from 'path-browserify';
 import { Subject } from 'await-notify';
-import { FileAccessor } from '../common/FileAccessor';
-import { IVariable, MDBCommunications } from './mdbCommunications';
+import { IUserPrompt, IVariable, MDBCommunications } from './mdbCommunications';
 import { MPLABXPaths } from '../common/mplabPaths';
+
+/**
+ * A custom message back to the client for some interaction
+ */
+export class UserPromptEvent extends Event implements DebugProtocol.Event {
+
+	constructor(body: IUserPrompt) {
+		super('userPrompt', body);
+	}
+}
 
 /**
  * This interface describes the mock-debug specific launch attributes
@@ -98,6 +108,12 @@ export class MdbDebugSession extends LoggingDebugSession {
 		this._runtime.on('stopOnBreakpoint', () => {
 			this.sendEvent(new StoppedEvent('breakpoint', MdbDebugSession.threadID,));
 		});
+
+		this._runtime.on('userPrompt', args => {
+			const event: Event = new UserPromptEvent(args as IUserPrompt);
+			this.sendEvent(event);
+		});
+
 		// this._runtime.on('stopOnDataBreakpoint', () => {
 		// 	this.sendEvent(new StoppedEvent('data breakpoint', MdbDebugSession.threadID,));
 		// });
@@ -138,6 +154,18 @@ export class MdbDebugSession extends LoggingDebugSession {
 		// this._runtime.on('end', () => {
 		// 	this.sendEvent(new TerminatedEvent());
 		// });
+	}
+
+	/**
+	 * Process any custom messages that may come from the client
+	 */
+	protected async customRequest(command: string, response: DebugProtocol.Response, args: any, request?: DebugProtocol.Request): Promise<any> {
+		if (command === 'userPrompt') {
+			// Process the result of any user prompts
+			return await this._runtime.query(args as string);
+		} else {
+			return super.customRequest(command, response, args, request);
+		}
 	}
 
 	/**

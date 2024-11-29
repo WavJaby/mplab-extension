@@ -40,8 +40,7 @@ export const haltReasonEventMap = {
 export interface IUserPrompt {
 	title: string,
 	message: string,
-	options: string[],
-	callBack: (string) => void
+	options: string[]
 }
 
 export interface IConnectResult {
@@ -424,8 +423,17 @@ export class MDBCommunications extends EventEmitter {
 		let result: ConnectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
 
 		if (result === ConnectionType.hardware) {
-			// MDB is asking a question, wait for the user to respond
-			while (message.match(/\?/)) {
+			// The MDB is asking a question, forward to the user
+			let question: RegExpMatchArray | null;
+			while (question = message.match(/.*\?/)) {
+				const prompt: IUserPrompt = {
+					title: 'User input needed',
+					message: question[0],
+					options: [ 'Yes', 'No' ]
+				};
+
+				this.emit('userPrompt', prompt);
+
 				message = await this.readResult();
 			} 
 			

@@ -22,7 +22,7 @@ import { MdbDebugSession } from './debugAdapter/mplabxDebug';
 import { activateMplabxDebug } from './debugAdapter/activateMplabxDebug';
 import { MPLABXAssistant, MpMakeTaskDefinition, MpToolTaskDefinition } from './mplabxAssistant';
 import { MPLABXPaths } from './common/mplabPaths';
-import { MDBCommunications } from './debugAdapter/mdbCommunications';
+import { IUserPrompt, MDBCommunications } from './debugAdapter/mdbCommunications';
 import { waitForTaskCompletion } from './common/taskHelpers';
 
 /*
@@ -177,6 +177,22 @@ export function activate(context: vscode.ExtensionContext) {
 				const definition: MpToolTaskDefinition = <any>_task.definition;
 
 				return mplabxAssistant.getToolTask(definition, _task.scope);
+			}
+		}),
+
+		vscode.debug.onDidReceiveDebugSessionCustomEvent(async e => {
+			// Handle requests from the Debug Adapter that are meant for the user
+			if (e.event === 'userPrompt') {
+				const message: IUserPrompt = e.body;
+
+				// Make sure the Debug Console is in focus
+				vscode.commands.executeCommand('workbench.panel.repl.view.focus');
+
+				const userResponse = await vscode.window.showWarningMessage(message.message, {
+					modal: true,
+				}, ...message.options);
+
+				e.session.customRequest('userPrompt', userResponse ?? 'No');
 			}
 		}),
 	);
