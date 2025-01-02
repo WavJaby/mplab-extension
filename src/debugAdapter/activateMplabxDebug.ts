@@ -61,7 +61,7 @@ export interface MdbDebugConfiguration extends DebugConfiguration {
 	/** The absolute path to the .elf file used for debugging */
 	filePath: string;
 	/** A dictionary of tool options to set. See the MPLABX configuration file for what is available*/
-	toolOptions?: any;
+	toolOptions?: [string, string][];
 	/** Automatically stop after launch.*/
 	stopOnEntry?: boolean;
 	/** Enable logging of the Debug Adapter Protocol */
@@ -162,7 +162,7 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 	const fileType: string = args.oldFileType ? '.cof' : '.elf';
 
 	// The output folder might not exist yet because the preLaunchTask hasn't ran yet
-	if (args.preLaunchTask) {
+	if (args.preLaunchTask && !fs.existsSync(outputFolder)) {
 		const task = (await vscode.tasks.fetchTasks()).find((t => t.name === args.preLaunchTask));
 		if (task) {
 			const taskExecution = await vscode.tasks.executeTask(task);
@@ -183,26 +183,23 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 		if (outputFiles.length > 0) {
 			let outputFile = outputFiles[0].name;
 
-			const programerAllowArray = vscode.workspace.getConfiguration('vslabx').get<string[]>('programerToolAllowList');
-			const programerAllowRegExp: RegExp | undefined = programerAllowArray && programerAllowArray.length > 0 ?
-				RegExp(`(${programerAllowArray?.join('|')})`) : undefined;
+			// const programerAllowArray = vscode.workspace.getConfiguration('vslabx').get<string[]>('programerToolAllowList');
+			// const programerAllowRegExp: RegExp | undefined = programerAllowArray && programerAllowArray.length > 0 ?
+			// 	RegExp(`(${programerAllowArray?.join('|')})`) : undefined;
 
-			let toolOptions: any = {};
+			let toolOptions: [string, string][] = [];
 
 			// Collect all the tool settings
-			if (targetConfig.toolOptions && programerAllowRegExp) {
-				const allowRegex: RegExp = programerAllowRegExp;
+			if (targetConfig.toolOptions) {
+				// const allowRegex: RegExp = programerAllowRegExp;
 
-				for (const key in targetConfig.toolOptions) {
+				for (const [key, value] of targetConfig.toolOptions) {
 					// Keys with a capital value don't work
 					if (key.toLowerCase() === key) {
-						const value: string = targetConfig.toolOptions[key];
-
 						// Values with '{' in it, needs resolved... idk how to do
-						if (value.length > 0 && !value.match(/(\$\{.+\}|Press\sto|system settings|\.\D)/) &&
-							key.match(allowRegex)) {
-
-							toolOptions[key] = value;
+						if (value.length > 0 && !value.match(/(\$\{.+\}|Press\sto|system settings|\.\D)/)) {
+							// key.match(allowRegex)
+							toolOptions.push([key, value]);
 						}
 					}
 				};

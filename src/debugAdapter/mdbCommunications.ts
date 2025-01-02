@@ -392,7 +392,7 @@ export class MDBCommunications extends EventEmitter {
 		});
 	}
 
-	public async connect(targetDevice: string, toolSet: string, programMode: boolean, toolSetOptions: object = {}): Promise<ConnectionType> {
+	public async connect(targetDevice: string, toolSet: string, programMode: boolean, toolSetOptions: [string, string][] = []): Promise<ConnectionType> {
 
 		this.write(`Device ${targetDevice}`, ConnectionLevel.none);
 
@@ -400,8 +400,12 @@ export class MDBCommunications extends EventEmitter {
 
 		// Apply all the tool settings
 		if (toolSetOptions) {
-			for (const [key, value] of Object.entries(toolSetOptions)) {
-				this.query(`set ${key} ${value}`, ConnectionLevel.deviceSet);
+			for (const [key, value] of toolSetOptions) {
+				const result = (await this.query(`set ${key} ${value}`, ConnectionLevel.deviceSet))
+					.replace(/^\>+|\>+$/g, '');
+				// if (result.match(/Error: /)) {
+				// 	window.showErrorMessage(`${result} ${key} ${value}`);
+				// }
 			};
 		}
 
@@ -424,15 +428,17 @@ export class MDBCommunications extends EventEmitter {
 		return result;
 	}
 
-	public async startDebugger(targetDevice: string, toolSet: string, elfFile: string, toolSetOptions: object = {}, stopOnEntry = false) {
-
+	public startDebugger(targetDevice: string, toolSet: string, elfFile: string, toolSetOptions: [string, string][] = [], stopOnEntry = false): Promise<void> {
 		if (!fs.existsSync(elfFile)) {
 			throw new Error(`Failure to find the given file: ${elfFile}`);
 		}
+		this._elfFile = elfFile;
+		return this.connect(targetDevice, toolSet, false, toolSetOptions).then((connectionType) => this.programDevice());
+		}
 
-		return this.connect(targetDevice, toolSet, false, toolSetOptions).then(async (connectionType) => {
+	public async programDevice() {
 			// Program the chip
-			const programResult = await this.query(`Program "${elfFile}"`, ConnectionLevel.connected);
+		const programResult = await this.query(`Program "${this._elfFile}"`, ConnectionLevel.connected);
 			if (programResult.match(/Program succeeded\./) || programResult.match(/Programming\/Verify complete/)) {
 
 				this.connectionLevel = ConnectionLevel.programed;
@@ -443,7 +449,6 @@ export class MDBCommunications extends EventEmitter {
 			} else {
 				throw new Error('Failure to write program to device');
 			}
-		});
 	}
 
 	public clearBreakpoints() {
