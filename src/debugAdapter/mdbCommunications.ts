@@ -163,16 +163,19 @@ export class MDBCommunications extends EventEmitter {
 		});
 
 		let msgPart: string = '';
-		this._mdbProcess.stdout?.on('data', async (data: String) => {
-			let d: string = `${data}`;
-			this.log(d, LogLevel.read);
+		this._mdbProcess.stdout?.on('data', async (raw: Buffer) => {
+			const data = raw.toString().replace(/^\>+|\>+$/g, '');
 
-			msgPart += d;
+			msgPart += data;
 			if (msgPart.match(/Stop at/g)) {
 				// Return if message not complete
 				if (await this.handleStopAt(msgPart)) {
 					return;
 				}
+				this.logLine(msgPart.trim(), LogLevel.read);
+			} else {
+				const msg = data.trim();
+				this.logLine(msg, LogLevel.read);
 			}
 			// Reset message part
 			msgPart = '';
@@ -181,6 +184,7 @@ export class MDBCommunications extends EventEmitter {
 		this._mdbProcess.on('close', (code) => {
 			this.logLine(`--- Microchip Debugger exited with code ${code} ---`,
 				code === 0 ? LogLevel.info : LogLevel.error);
+			this.disposed = true;
 		});
 
 		// Wait for the Microchip Debugger to start up.
@@ -206,7 +210,7 @@ export class MDBCommunications extends EventEmitter {
 		this.log(`${input}\r\n`, logLevel);
 	}
 
-	private _write(input: string, level: ConnectionLevel) {
+	private _write(input: string) {
 		this.mdbProcess.stdin?.write(input + '\r\n');
 		this.logLine(input, LogLevel.wrote);
 	}
@@ -214,10 +218,10 @@ export class MDBCommunications extends EventEmitter {
 	/** Writes the given command to the Microchip Debugger
 	 * @param input The command to send
 	 */
-	private write(input: string, level: ConnectionLevel) {
+	public write(input: string, level: ConnectionLevel) {
 		if (this.connectionLevel >= level) {
 			this._mdbMutex.runExclusive(() => {
-				this._write(input, level);
+				this._write(input);
 			});
 		} else {
 			this.once(level.toString(), () => this.write(input, level));
@@ -302,7 +306,7 @@ export class MDBCommunications extends EventEmitter {
 	 * @param input The command to send to the debugger
 	 * @param level The ConnectionLevel required in order for the command to work
 	 */
-	async query(input: string, level: ConnectionLevel, until: string = '>'): Promise<string> {
+	public async query(input: string, level: ConnectionLevel, until: string = '>'): Promise<string> {
 
 		if (this.connectionLevel >= level) {
 			return this._mdbMutex.runExclusive(() => {
@@ -312,7 +316,7 @@ export class MDBCommunications extends EventEmitter {
 				}
 
 				let result: Promise<string> = this.readResult(until);
-				this._write(input, level);
+				this._write(input);
 
 				return result;
 			});
@@ -468,13 +472,13 @@ export class MDBCommunications extends EventEmitter {
 	}
 
 	public clearBreakpoints() {
-		this.query('delete', ConnectionLevel.programed).then(() => {
+		this.query('Delete', ConnectionLevel.programed).then(() => {
 			this._breakpoints = [];
 		});
 	}
 
 	public clearBreakpoint(id: number) {
-		this.query(`delete ${id}`, ConnectionLevel.programed).then(() => {
+		this.query(`Delete ${id}`, ConnectionLevel.programed).then(() => {
 			this._breakpoints = this._breakpoints.filter(bp => bp.id !== id);
 		});
 	}
@@ -634,8 +638,22 @@ export class MDBCommunications extends EventEmitter {
 		this.write('Halt', ConnectionLevel.programed);
 	}
 
-	public quit(): void {
-		this.dispose();
+	public stopDebug(): Promise<void> {
+		this._haltReason = HaltReason.none;
+		// IDK why but it unlock the build output file 
+		return this.programDevice();
+	}
+
+	public quit(): Promise<void> {
+		return new Promise((resolve, reject) => {
+			if (!this.disposed) {
+				this._mdbProcess.once('close', resolve);
+				setTimeout(this._mdbProcess.kill, 1000);
+				this._write('Quit');
+				this.disposed = true;
+			} else // Already disposed
+				resolve();
+		});
 	}
 
 	public async watch(address: string, breakOnType: BreakOnType, value?: number, passCount?: number): Promise<ISetWatchResponse> {
