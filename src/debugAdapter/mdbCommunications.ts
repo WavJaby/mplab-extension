@@ -11,8 +11,9 @@ import fs = require('fs');
 import { EventEmitter } from 'stream';
 import { debug } from 'console';
 import { normalizePath } from '../common/mdbPaths';
+import { window } from 'vscode';
 
-enum ConnectionLevel {
+export enum ConnectionLevel {
 	none,
 	deviceSet,
 	connected,
@@ -112,6 +113,7 @@ export class MDBCommunications extends EventEmitter {
 	private _mdbProcess: ChildProcess;
 	private _mdbLogger: ILogWriter | undefined;
 	private _mdbMutex: Mutex = new Mutex();
+	private _elfFile: string = '';
 
 	private _breakpoints: IBreakpoint[] = [];
 	private _haltReason: HaltReason = HaltReason.none;
@@ -413,14 +415,28 @@ export class MDBCommunications extends EventEmitter {
 		let message: string = await this.query(`HwTool ${toolSet}${programMode ? ' -p' : ''}`, ConnectionLevel.deviceSet, '>');
 
 		// If message is just the default > output, keep reading. On different platforms, \r\n> may be the case, but we're looking for a longer string anyway.
-		if (message.length < 8) {
-			message = await this.readResult('>');
+		if (message.length < 8)
+			message = await this.readResult();
+		message = message.replace(/^\>+|\>+$|^\s*\**\s*/g, '').trim();
+
+		// If get warning ask if continue
+		const warningMessage = message.match(/CAUTION: ([^^]+)/)
+		if (warningMessage && warningMessage[1]) {
+			const messageBody = warningMessage[1];
+			if (!messageBody.includes('Selecting a 5V device when a 3.3V')) {
+				// Ask user if wnat to continue
+				const result = await window.showWarningMessage(messageBody, 'Continue');
+				if (result !== 'Continue')
+					throw new Error(`Failed to connect to target device\n${message}`);
+			}
+			message = (await this.query('yes', ConnectionLevel.deviceSet))
+				.replace(/^\>+|\>+$|^\s*\**\s*/g, '').trim();;
 		}
 
 		let result: ConnectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
 
 		if (result === ConnectionType.hardware && !message.match(/Target device (.+) found\./)) {
-			throw new Error(`Failed to connect to target device ${message.replace(/^\>+|\>+$/g, '').trim()}`);
+			throw new Error(`Failed to connect to target device\n${message}`);
 		}
 
 		this.connectionLevel = ConnectionLevel.connected;
