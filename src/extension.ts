@@ -218,7 +218,6 @@ class MdbDebugAdapterServerDescriptorFactory implements vscode.DebugAdapterDescr
 	private server?: Net.Server;
 
 	createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-		// TODO: Figure out how to close debugSession properly
 		if (!this.server) {
 			// start listening on a random port
 			this.server = Net.createServer(socket => {

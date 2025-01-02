@@ -526,8 +526,6 @@ export class MDBCommunications extends EventEmitter {
 					});
 				}
 			}
-			// TODO: https://marketplace.visualstudio.com/items?itemName=mcu-debug.memory-view
-
 			let parametersMatch = [...response.matchAll(/\s+(\w+)=0x(\d+)/g)];
 
 			this.lastParameters = parametersMatch.map((m, i) => {
