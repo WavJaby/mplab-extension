@@ -9,6 +9,12 @@
   },
   "license": "MIT",
   "keywords": [
+    "pic",
+    "pic18",
+    "pic assembly",
+    "mpasm",
+    "mplab",
+    "mplabx",
     "multi-root ready"
   ],
   "engines": {
@@ -17,7 +23,8 @@
   "icon": "images/vslabx-icon.png",
   "categories": [
     "Snippets",
-    "Debuggers"
+    "Debuggers",
+    "Programming Languages"
   ],
   "private": true,
   "repository": {
@@ -448,8 +455,39 @@
       {
         "language": "jsonc",
         "path": "./snippets/jsonc.json"
+      },
+      {
+        "language": "asm",
+        "path": "./snippets/asm.json"
+      }
+    ],
+    "languages": [
+      {
+        "id": "asm",
+        "aliases": [
+          "PIC Assembly"
+        ],
+        "extensions": [
+          ".asm",
+          ".inc",
+          ".lst"
+        ],
+        "configuration": "./language/language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "asm",
+        "scopeName": "source.asm",
+        "path": "./syntaxes/asm.json"
       }
     ]
+  },
+  "capabilities": {
+    "hoverProvider" : "true",
+    "completionProvider": {
+      "resolveProvider": "true"
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -25,6 +25,7 @@ import { MPLABXPaths } from './common/mplabPaths';
 import { MDBCommunications } from './debugAdapter/mdbCommunications';
 import { waitForTaskCompletion } from './common/taskHelpers';
 import { MplabxDebugConfiguration } from './debugAdapter/activateMplabxDebug';
+import { AsmCompletionItemProvider, AsmHoverProvider } from './completion/AsmCompletionItemProvider';
 
 /*
  * The compile time flag 'runMode' controls how the debug adapter is run.
@@ -186,6 +187,9 @@ export function activate(context: vscode.ExtensionContext) {
 				return mplabxAssistant.getToolTask(definition, _task.scope);
 			}
 		}),
+
+		vscode.languages.registerCompletionItemProvider({ language: 'asm' }, new AsmCompletionItemProvider()),
+		vscode.languages.registerHoverProvider({ language: 'asm' }, new AsmHoverProvider()),
 	);
 }
 
