@@ -128,6 +128,7 @@ export class MDBCommunications extends EventEmitter {
 	private _lastStop?: [string, number];
 
 	private _connectionLevel: ConnectionLevel = ConnectionLevel.none;
+	private _connectionType?: ConnectionType;
 
 	private _emitter: EventEmitter = new EventEmitter();
 
@@ -424,6 +425,8 @@ export class MDBCommunications extends EventEmitter {
 	}
 
 	public async connect(targetDevice: string, toolSet: string, programMode: boolean, toolSetOptions: [string, string][] = []): Promise<ConnectionType> {
+		if (this._connectionType && this.connectionLevel >= ConnectionLevel.connected)
+			return this._connectionType;
 
 		this.write(`Device ${targetDevice}`, ConnectionLevel.none);
 
@@ -449,9 +452,9 @@ export class MDBCommunications extends EventEmitter {
 			message = await this.readResult();
 		}
 
-		let result: ConnectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
+		this._connectionType = toolSet === "Sim" ? ConnectionType.simulator : ConnectionType.hardware;
 
-		if (result === ConnectionType.hardware) {
+		if (this._connectionType === ConnectionType.hardware) {
 			// The MDB is asking a question, forward to the user
 			let question: RegExpMatchArray | null;
 			while (question = message.match(/.*\?/)) {
@@ -473,7 +476,7 @@ export class MDBCommunications extends EventEmitter {
 
 		this.connectionLevel = ConnectionLevel.connected;
 
-		return result;
+		return this._connectionType;
 	}
 
 	public startDebugger(targetDevice: string, toolSet: string, elfFile: string, toolSetOptions: [string, string][] = [], stopOnEntry = false): Promise<void> {
@@ -660,15 +663,14 @@ export class MDBCommunications extends EventEmitter {
 		return this._query('Next', ConnectionLevel.programed);
 	}
 
-	public halt(): void {
+	public halt(): Promise<string> {
 		this._haltReason = HaltReason.halt;
-		this.write('Halt', ConnectionLevel.programed);
+		return this._query('Halt', ConnectionLevel.programed);
 	}
 
-	public stopDebug(): Promise<void> {
+	public stopDebug(): Promise<string> {
 		this._haltReason = HaltReason.none;
-		// IDK why but it unlock the build output file 
-		return this.programDevice();
+		return this.halt();
 	}
 
 	public quit(): Promise<void> {
