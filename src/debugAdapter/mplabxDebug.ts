@@ -12,6 +12,7 @@
 
 import {
 	// Logger, logger,
+	Event,
 	LoggingDebugSession,
 	InitializedEvent, StoppedEvent, OutputEvent,
 	Thread, StackFrame, Scope, Source, Handles, Breakpoint, Variable,
@@ -21,8 +22,18 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { basename } from 'path-browserify';
 import { Subject } from 'await-notify';
-import { ConnectionLevel, MDBCommunications } from './mdbCommunications';
+import { IUserPrompt, MDBCommunications } from './mdbCommunications';
 import { MPLABXPaths } from '../common/mplabPaths';
+
+/**
+ * A custom message back to the client for some interaction
+ */
+export class UserPromptEvent extends Event implements DebugProtocol.Event {
+
+	constructor(body: IUserPrompt) {
+		super('userPrompt', body);
+	}
+}
 
 /**
  * This interface describes the mock-debug specific launch attributes
@@ -97,6 +108,12 @@ export class MdbDebugSession extends LoggingDebugSession {
 		this._runtime.on('stopOnBreakpoint', () => {
 			this.sendEvent(new StoppedEvent('breakpoint', MdbDebugSession.threadID,));
 		});
+
+		this._runtime.on('userPrompt', args => {
+			const event: Event = new UserPromptEvent(args as IUserPrompt);
+			this.sendEvent(event);
+		});
+
 		// this._runtime.on('stopOnDataBreakpoint', () => {
 		// 	this.sendEvent(new StoppedEvent('data breakpoint', MdbDebugSession.threadID,));
 		// });
@@ -137,6 +154,18 @@ export class MdbDebugSession extends LoggingDebugSession {
 		// this._runtime.on('end', () => {
 		// 	this.sendEvent(new TerminatedEvent());
 		// });
+	}
+
+	/**
+	 * Process any custom messages that may come from the client
+	 */
+	protected async customRequest(command: string, response: DebugProtocol.Response, args: any, request?: DebugProtocol.Request): Promise<any> {
+		if (command === 'userPrompt') {
+			// Process the result of any user prompts
+			return await this._runtime.query(args as string);
+		} else {
+			return super.customRequest(command, response, args, request);
+		}
 	}
 
 	/**
@@ -500,46 +529,16 @@ export class MdbDebugSession extends LoggingDebugSession {
 		let reply: string | undefined;
 		switch (args.context) {
 			case 'repl':
-				const result = await this._runtime.query(args.expression, ConnectionLevel.connected);
+				// handle some REPL commands:
+				// REPL commands are entered via the "Debug Console"
+				const result = await this._runtime.query(args.expression);
+				// Print command result
 				response.body = {
 					result: result,
 					variablesReference: 0
 				};
 				this.sendResponse(response);
 				return;
-			// 	// handle some REPL commands:
-			// 	// 'evaluate' supports to create and delete breakpoints from the 'repl':
-			// 	const matches = /new +([0-9]+)/.exec(args.expression);
-			// 	if (matches && matches.length === 2) {
-			// 		const mbp = await this._runtime.setBreakpoint(this._runtime.sourceFile, this.convertClientLineToDebugger(parseInt(matches[1])));
-			// 		const bp = new Breakpoint(mbp.verified, this.convertDebuggerLineToClient(mbp.line), undefined, this.createSource(this._runtime.sourceFile)) as DebugProtocol.Breakpoint;
-			// 		bp.id = mbp.id;
-			// 		this.sendEvent(new BreakpointEvent('new', bp));
-			// 		reply = `breakpoint created`;
-			// 	} else {
-			// 		const matches = /del +([0-9]+)/.exec(args.expression);
-			// 		if (matches && matches.length === 2) {
-			// 			const mbp = this._runtime.clearBreakPoint(this._runtime.sourceFile, this.convertClientLineToDebugger(parseInt(matches[1])));
-			// 			if (mbp) {
-			// 				const bp = new Breakpoint(false) as DebugProtocol.Breakpoint;
-			// 				bp.id = mbp.id;
-			// 				this.sendEvent(new BreakpointEvent('removed', bp));
-			// 				reply = `breakpoint deleted`;
-			// 			}
-			// 		} else {
-			// 			const matches = /progress/.exec(args.expression);
-			// 			if (matches && matches.length === 1) {
-			// 				if (this._reportProgress) {
-			// 					reply = `progress started`;
-			// 					this.progressSequence();
-			// 				} else {
-			// 					reply = `frontend doesn't support progress (capability 'supportsProgressReporting' not set)`;
-			// 				}
-			// 			}
-			// 		}
-			// 	}
-			// fall through
-
 			case 'hover':
 			case 'watch':
 				let watch = await this._runtime.printVariable(args.expression);
