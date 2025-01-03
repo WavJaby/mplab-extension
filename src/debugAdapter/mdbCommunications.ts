@@ -425,7 +425,7 @@ export class MDBCommunications extends EventEmitter {
 	}
 
 	public async connect(targetDevice: string, toolSet: string, programMode: boolean, toolSetOptions: [string, string][] = []): Promise<ConnectionType> {
-		if (this._connectionType && this.connectionLevel >= ConnectionLevel.connected)
+		if (this._connectionType != null && this.connectionLevel >= ConnectionLevel.connected)
 			return this._connectionType;
 
 		this.write(`Device ${targetDevice}`, ConnectionLevel.none);
@@ -668,9 +668,13 @@ export class MDBCommunications extends EventEmitter {
 		return this._query('Halt', ConnectionLevel.programed);
 	}
 
-	public stopDebug(): Promise<string> {
+	public stopDebug(): Promise<void> {
 		this._haltReason = HaltReason.none;
-		return this.halt();
+		if (this._connectionType === ConnectionType.simulator) {
+			// IDK why but it unlock the build output file 
+			return this.programDevice();
+		} else
+			return this.halt().then();
 	}
 
 	public quit(): Promise<void> {
