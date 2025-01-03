@@ -3,7 +3,7 @@
  *--------------------------------------------------------*/
 
 'use strict';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, exec } from 'child_process';
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { Mutex } from 'async-mutex';
 import path = require('path');
@@ -115,8 +115,10 @@ export class MDBCommunications extends EventEmitter {
 	private _mdbMutex: Mutex = new Mutex();
 	private _elfFile: string = '';
 
+	private _messagePart: string = '';
 	private _breakpoints: IBreakpoint[] = [];
 	private _haltReason: HaltReason = HaltReason.none;
+	/** For debugging assembly language, stacktrace will be empty */
 	private _lastStop?: [string, number];
 
 	private _connectionLevel: ConnectionLevel = ConnectionLevel.none;
@@ -154,31 +156,35 @@ export class MDBCommunications extends EventEmitter {
 
 		// (Windows Compatibility) Trim off quotes if there are any
 		mdbPath = mdbPath.replace(/"/g, "",);
-
-		this._mdbProcess = spawn(`"${mdbPath}"`, [], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+		// https://nodejs.org/api/child_process.html#spawning-bat-and-cmd-files-on-windows
+		if (process.platform === 'win32')
+			this._mdbProcess = exec(`"${mdbPath}"`);
+		else
+			this._mdbProcess = spawn(mdbPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
 		this.logLine(`--- Started Microchip Debugger ---`, LogLevel.info);
 
 		this._mdbProcess.stderr?.on('data', (error) => {
 			debug(`MDB ERROR -> ${error}`);
 		});
 
-		let msgPart: string = '';
 		this._mdbProcess.stdout?.on('data', async (raw: Buffer) => {
-			const data = raw.toString().replace(/^\>+|\>+$/g, '');
+			const data = raw.toString();
 
-			msgPart += data;
-			if (msgPart.match(/Stop at/g)) {
-				// Return if message not complete
-				if (await this.handleStopAt(msgPart)) {
-					return;
-				}
-				this.logLine(msgPart.trim(), LogLevel.read);
-			} else {
-				const msg = data.trim();
-				this.logLine(msg, LogLevel.read);
+			this._messagePart += data;
+			// Wait data chunk end 
+			if (data.lastIndexOf('>') === -1 && this.connectionLevel === ConnectionLevel.programed)
+				return;
+			// Remove extra character
+			this._messagePart = this._messagePart.replace(/>/g, '').trim();
+			if (!this._messagePart)
+				return;
+
+			if (this._messagePart.match(/Stop at/g)) {
+				await this.handleStopAt(this._messagePart);
 			}
+			this.logLine(this._messagePart, LogLevel.read);
 			// Reset message part
-			msgPart = '';
+			this._messagePart = '';
 		});
 
 		this._mdbProcess.on('close', (code) => {
@@ -266,15 +272,23 @@ export class MDBCommunications extends EventEmitter {
 	 * @param message The "Stop at" message
 	 */
 	private async handleStopAt(message: string): Promise<boolean> {
-		// const addressRegex = /address:(?<address>0x[0-9a-fA-F]{2,8})/gm;
+		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
+		if (this._haltReason !== HaltReason.none) {
+			const eventToDispatch = haltReasonEventMap[this._haltReason];
+			this.emit(eventToDispatch);
+			return false; // Early return, as stopAt otherwise checks exceptions and breakpoints
+		}
+
+		const addressRegex = /address:(?<address>0x[0-9a-fA-F]{1,8})/gm;
 		const fileRegex = /file:(?<file>.+)/gm;
 		const lineRegex = /source line:(?<line>\d+)/gm;
 
 		let matches = message.match(lineRegex);
 
-		// Stop at message may or may not come in a single data or over multiple. 
-		// If we don't match the pattern, we need to keep reading and re-parse when a full message has been received.
 		if ((matches?.length || 0) < 1) {
+			// Only have address, try continue
+			if (message.match(addressRegex))
+				this.continue();
 			return true;
 		}
 
@@ -284,13 +298,6 @@ export class MDBCommunications extends EventEmitter {
 
 		if (!file || line < 0) { return false; };
 		this._lastStop = [file, line];
-
-		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
-		if (this._haltReason !== HaltReason.none) {
-			const eventToDispatch = haltReasonEventMap[this._haltReason];
-			this.emit(eventToDispatch);
-			return false; // Early return, as stopAt otherwise checks exceptions and breakpoints
-		}
 
 		// Find potential breakpoint based on file name and line - if this does not exist, it must be an exception.
 		const breakpoint = this._breakpoints.find(bp => (normalizePath(bp.file) === normalizePath(file)) && bp.line === line);
@@ -355,7 +362,7 @@ export class MDBCommunications extends EventEmitter {
 					serialNumber: 'None'
 				}];
 			}
-			
+
 			return lines.map((line => {
 				let match = line.match(/(?<index>\d+)\s*(?<type>[\w\d]+)\s*(?<serialNumber>[\w\d]+)\s*(?<ipAddress>[\w\/\d]+)\s*(?<name>[\w\d\s]+)/);
 
@@ -402,6 +409,7 @@ export class MDBCommunications extends EventEmitter {
 
 		this.write(`Device ${targetDevice}`, ConnectionLevel.none);
 
+		this._messagePart = '';
 		this.connectionLevel = ConnectionLevel.deviceSet;
 
 		// Apply all the tool settings
@@ -427,12 +435,10 @@ export class MDBCommunications extends EventEmitter {
 		const warningMessage = message.match(/CAUTION: ([^^]+)/)
 		if (warningMessage && warningMessage[1]) {
 			const messageBody = warningMessage[1];
-			if (!messageBody.includes('Selecting a 5V device when a 3.3V')) {
-				// Ask user if wnat to continue
-				const result = await window.showWarningMessage(messageBody, 'Continue');
-				if (result !== 'Continue')
-					throw new Error(`Failed to connect to target device\n${message}`);
-			}
+			// Ask user if wnat to continue
+			const result = await window.showWarningMessage(messageBody, 'Continue');
+			if (result !== 'Continue')
+				throw new Error(`Failed to connect to target device\n${message}`);
 			message = (await this.query('yes', ConnectionLevel.deviceSet))
 				.replace(/^\>+|\>+$|^\s*\**\s*/g, '').trim();;
 		}
@@ -454,21 +460,21 @@ export class MDBCommunications extends EventEmitter {
 		}
 		this._elfFile = elfFile;
 		return this.connect(targetDevice, toolSet, false, toolSetOptions).then((connectionType) => this.programDevice());
-		}
+	}
 
 	public async programDevice() {
-			// Program the chip
+		// Program the chip
 		const programResult = await this.query(`Program "${this._elfFile}"`, ConnectionLevel.connected);
-			if (programResult.match(/Program succeeded\./) || programResult.match(/Programming\/Verify complete/)) {
+		if (programResult.match(/Program succeeded\./) || programResult.match(/Programming\/Verify complete/)) {
 
-				this.connectionLevel = ConnectionLevel.programed;
+			this.connectionLevel = ConnectionLevel.programed;
 
-				// Let everyone know initialization has completed.
-				this.emit('initCompleted');
+			// Let everyone know initialization has completed.
+			this.emit('initCompleted');
 
-			} else {
-				throw new Error('Failure to write program to device');
-			}
+		} else {
+			throw new Error('Failure to write program to device');
+		}
 	}
 
 	public clearBreakpoints() {
@@ -533,19 +539,6 @@ export class MDBCommunications extends EventEmitter {
 					variablesReference: 0,
 				};
 			});
-			const regs = ['WREG', 'FSR0', 'FSR1', 'FSR2'];
-			this.lastRegisters = [];
-			for (const regName of regs) {
-				const regVal = (await this.query('Print /x ' + regName, ConnectionLevel.programed)).match(/(\w+)=([0-9a-f]+)/);
-				if (regVal?.length === 3) {
-					this.lastRegisters.push({
-						name: regName,
-						value: '0x' + regVal[2],
-						presentationHint: { kind: 'data' },
-						variablesReference: 0,
-					});
-				}
-			}
 			let parametersMatch = [...response.matchAll(/\s+(\w+)=0x(\d+)/g)];
 
 			this.lastParameters = parametersMatch.map((m, i) => {
@@ -594,11 +587,11 @@ export class MDBCommunications extends EventEmitter {
 	}
 
 	public get hasLocalVariables(): boolean {
-			return this.lastLocals.length > 0;
+		return this.lastLocals.length > 0;
 	}
 
 	public get hasParameters(): boolean {
-			return this.lastParameters.length > 0;
+		return this.lastParameters.length > 0;
 	}
 
 	public async getRegisters(): Promise<Array<DebugProtocol.Variable>> {
@@ -689,10 +682,10 @@ export class MDBCommunications extends EventEmitter {
 
 	public async printVariable(name: string): Promise<DebugProtocol.Variable | undefined> {
 
-		const hexMatch = name.match(/^0x([\dA-Fa-f]+)$/);
-		if (hexMatch) {
-			name = parseInt(hexMatch[1]).toString();
-		}
+		// const hexMatch = name.match(/^0x([\dA-Fa-f]+)$/);
+		// if (hexMatch) {
+		// 	name = parseInt(hexMatch[1]).toString();
+		// }
 
 		return this.query(`Print ${name}`, ConnectionLevel.programed).then(response => {
 			const re = response.match(/(\w+)=\n?(\d+)/);
@@ -707,13 +700,5 @@ export class MDBCommunications extends EventEmitter {
 				return undefined;
 			}
 		});
-	}
-
-	/** Disposes the assistant */
-	public dispose() {
-		if (!this.disposed && this._mdbProcess) {
-			this._write('Quit', ConnectionLevel.none);
-		}
-		this.disposed = true;
 	}
 }

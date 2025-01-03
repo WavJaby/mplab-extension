@@ -21,7 +21,7 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { basename } from 'path-browserify';
 import { Subject } from 'await-notify';
-import { MDBCommunications } from './mdbCommunications';
+import { ConnectionLevel, MDBCommunications } from './mdbCommunications';
 import { MPLABXPaths } from '../common/mplabPaths';
 
 /**
@@ -193,11 +193,9 @@ export class MdbDebugSession extends LoggingDebugSession {
 	}
 
 	protected async launchRequest(response: DebugProtocol.LaunchResponse, args: ILaunchRequestArguments) {
-
 		try {
 			// start the program in the runtime
 			this._runtime.startDebugger(args.device, args.toolType, args.filePath, args.toolOptions).then(r => {
-				
 				this._stopOnEntry = !!args.stopOnEntry;
 				response.success = true;
 				this.sendResponse(response);
@@ -500,10 +498,15 @@ export class MdbDebugSession extends LoggingDebugSession {
 	protected async evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): Promise<void> {
 
 		let reply: string | undefined;
-		let rv: Variable | undefined;
-
 		switch (args.context) {
-			// case 'repl':
+			case 'repl':
+				const result = await this._runtime.query(args.expression, ConnectionLevel.connected);
+				response.body = {
+					result: result,
+					variablesReference: 0
+				};
+				this.sendResponse(response);
+				return;
 			// 	// handle some REPL commands:
 			// 	// 'evaluate' supports to create and delete breakpoints from the 'repl':
 			// 	const matches = /new +([0-9]+)/.exec(args.expression);
@@ -541,8 +544,15 @@ export class MdbDebugSession extends LoggingDebugSession {
 			case 'watch':
 				let watch = await this._runtime.printVariable(args.expression);
 
+				let rv: Variable | undefined;
 				if (watch) {
 					rv = new Variable(watch.name, watch.value.toString());
+					response.body = {
+						result: rv.value,
+						variablesReference: rv.variablesReference
+					};
+					this.sendResponse(response);
+					return;
 				} else {
 					reply = 'Out of Scope';
 				}
@@ -557,17 +567,10 @@ export class MdbDebugSession extends LoggingDebugSession {
 			// 	break;
 		}
 
-		if (rv) {
-			response.body = {
-				result: rv.value,
-				variablesReference: rv.variablesReference
-			};
-		} else {
-			response.body = {
-				result: reply ? reply : 'Unknown Expression',
-				variablesReference: 0
-			};
-		}
+		response.body = {
+			result: reply ? reply : 'Unknown Expression',
+			variablesReference: 0
+		};
 
 		this.sendResponse(response);
 	}
@@ -786,15 +789,17 @@ export class MdbDebugSession extends LoggingDebugSession {
 	// }
 
 	protected disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments, request?: DebugProtocol.Request): void {
-		this.shutdown();
-		this.sendResponse(response);
+		if (this._isServer || this._isRunningInline()) {
+			this._runtime.stopDebug().then(() => this.sendResponse(response));
+		} else
+			this.sendResponse(response);
 	}
 
-	shutdown(force: boolean = false) {
+	shutdown(force: boolean = false): void {
 		if (force || !this._isServer && !this._isRunningInline() && !this._runtime.isDisposed()) {
-			this._runtime.quit();
-		}
-		super.shutdown();
+			this._runtime.quit().then(super.shutdown);
+		} else
+			super.shutdown();
 	}
 
 	//---- helpers
