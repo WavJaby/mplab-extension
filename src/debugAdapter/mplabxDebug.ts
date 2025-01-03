@@ -498,8 +498,7 @@ export class MdbDebugSession extends LoggingDebugSession {
 	}
 
 	protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
-		this._runtime.next();
-		this.sendResponse(response);
+		this._runtime.next().then(()=>this.sendResponse(response));
 	}
 
 	// protected stepInTargetsRequest(response: DebugProtocol.StepInTargetsResponse, args: DebugProtocol.StepInTargetsArguments) {
@@ -520,8 +519,7 @@ export class MdbDebugSession extends LoggingDebugSession {
 	protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments): void {
 		// Step out isn't supported by MDB, but is needed by the debug adapter
 		// Next closest thing is next command.
-		this._runtime.next();
-		this.sendResponse(response);
+		this._runtime.next().then(()=>this.sendResponse(response));
 	}
 
 	protected async evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): Promise<void> {

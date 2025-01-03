@@ -178,6 +178,11 @@
                 "type": "string",
                 "description": "The configuration of the project to build"
               },
+              "toolOptions": {
+                "type": "array",
+                "description": "A dictionary of tool options to set. See the MPLABX configuration file for what is available",
+                "default": []
+              },
               "debug": {
                 "type": "boolean",
                 "description": "Boolean indicating debug build or production build"
@@ -261,9 +266,9 @@
                 "default": "${workspaceFolder}/dist/default/debug/${1:projectName}.debug.elf"
               },
               "toolOptions": {
-                "type": "object",
+                "type": "array",
                 "description": "A dictionary of tool options to set. See the MPLABX configuration file for what is available",
-                "default": {}
+                "default": []
               },
               "stopOnEntry": {
                 "type": "boolean",

@@ -34,20 +34,24 @@ export function activateMplabxDebug(context: vscode.ExtensionContext, factory: v
 export interface MplabxDebugConfiguration extends DebugConfiguration {
 	/** An absolute path to the project to debug. */
 	program: string;
-	/** The name of the configuration to debug */
-	configuration?: string;
 	/** Automatically stop target after launch. If not specified, target does not stop. */
 	stopOnEntry?: boolean;
+	/** Enable logging of the Debug Adapter Protocol. */
+	trace?: boolean;
+	/** The name of the configuration to debug */
+	configuration?: string;
+	/** A dictionary of tool options to set. See the MPLABX configuration file for what is available*/
+	toolOptions?: [string, string][];
 	/** Boolean indicating whether to build and launch a debug build or a production build */
 	debug?: boolean;
-	/** A task to run before running the debugger */
-	preLaunchTask?: string;
 	/** Boolean indicating whether to execute task when the debugger is restarted */
 	preLaunchOnRestart?: boolean;
 	/** Boolean indicating whether to use older file type '.cof' */
 	oldFileType?: boolean;
 	/** Boolean indicates whether to enable mdb server mode. (It can reduce mdb starting time) */
 	runMdbAsServer?: boolean;
+	/** Task to run before debug session starts. */
+	preLaunchTask?: string;
 }
 
 /**
@@ -203,6 +207,12 @@ async function convertDebugConfiguration(args: MplabxDebugConfiguration): Promis
 						}
 					}
 				};
+			}
+
+			if (args.toolOptions) {
+				for (const [key, value] of args.toolOptions) {
+					toolOptions.push([key, value]);
+				}
 			}
 
 			// Convert from a project name to an MDB name. If a name can't be found,
