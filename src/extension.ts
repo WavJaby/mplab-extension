@@ -80,12 +80,17 @@ export function activate(context: vscode.ExtensionContext) {
 			const projectPath = await selectMplabxProjectFolder();
 
 			if (projectPath) {
-				const task = await vscode.tasks.executeTask(mplabxAssistant.getCleanTask({
+				const clean = await vscode.tasks.executeTask(mplabxAssistant.getCleanTask({
 					projectFolder: projectPath,
 					type: 'clean'
 				}));
-
-				return await waitForTaskCompletion(task);
+				await waitForTaskCompletion(clean);
+				
+				const cleanD = await vscode.tasks.executeTask(mplabxAssistant.getCleanTask({
+					projectFolder: projectPath,
+					type: 'clean'
+				}, true));
+				return await waitForTaskCompletion(cleanD);
 			}
 		}),
 
@@ -168,7 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
 							return mplabxAssistant.getBuildTask(definition, _task.scope);
 
 						case 'clean':
-							return mplabxAssistant.getCleanTask(definition, _task.scope);
+							return mplabxAssistant.getCleanTask(definition, false, _task.scope);
 
 						case 'program':
 							return mplabxAssistant.getProgramTask(definition, _task.scope);
