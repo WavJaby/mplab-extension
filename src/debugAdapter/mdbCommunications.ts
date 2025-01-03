@@ -173,24 +173,32 @@ export class MDBCommunications extends EventEmitter {
 			debug(`MDB ERROR -> ${error}`);
 		});
 
+		let waitMsgComplete = false;
+		let waitMsgCompleteTimeout: NodeJS.Timeout;
 		this._mdbProcess.stdout?.on('data', async (raw: Buffer) => {
 			const data = raw.toString();
 
-			this._messagePart += data;
-			// Wait data chunk end 
-			if (data.lastIndexOf('>') === -1 && this.connectionLevel === ConnectionLevel.programed)
-				return;
-			// Remove extra character
-			this._messagePart = this._messagePart.replace(/>/g, '').trim();
-			if (!this._messagePart)
-				return;
-
+			if (waitMsgComplete)
+				this._messagePart += data;
+			else this._messagePart = data;
+			// Check if stop at message
 			if (this._messagePart.match(/Stop at/g)) {
-				await this.handleStopAt(this._messagePart);
+				// Check if message completed
+				if (await this.handleStopAt(this._messagePart)) {
+					waitMsgComplete = true;
+					waitMsgCompleteTimeout = setTimeout(() => {
+						this.continue();
+						waitMsgComplete = false;
+					}, 100);
+					return;
+				}
+				this._messagePart = this._messagePart.replace(/\n>/g, '');
 			}
-			this.logLine(this._messagePart, LogLevel.read);
-			// Reset message part
-			this._messagePart = '';
+			if (waitMsgCompleteTimeout) clearTimeout(waitMsgCompleteTimeout);
+			waitMsgComplete = false;
+
+			const consoleOutMsg = this._messagePart.replace(/>/g, '').trim();
+			if (consoleOutMsg) this.logLine(consoleOutMsg, LogLevel.read);
 		});
 
 		this._mdbProcess.on('close', (code) => {
@@ -277,14 +285,7 @@ export class MDBCommunications extends EventEmitter {
 	 * Handles a "Stop at" message from output. Swallows responses until entirety of "Stop at" message has been chunked out
 	 * @param message The "Stop at" message
 	 */
-	private async handleStopAt(message: string): Promise<void> {
-		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
-		if (this._haltReason !== HaltReason.none) {
-			const eventToDispatch = haltReasonEventMap[this._haltReason];
-			this.emit(eventToDispatch);
-			return; // Early return, as stopAt otherwise checks exceptions and breakpoints
-		}
-
+	private async handleStopAt(message: string): Promise<boolean> {
 		const addressRegex = /address:(?<address>0x[0-9a-fA-F]{1,8})/gm;
 		const fileRegex = /file:(?<file>.+)/gm;
 		const lineRegex = /source line:(?<line>\d+)/gm;
@@ -292,18 +293,22 @@ export class MDBCommunications extends EventEmitter {
 		let matches = message.match(lineRegex);
 
 		if ((matches?.length || 0) < 1) {
-			// Only have address, try continue
-			if (message.match(addressRegex))
-				this.continue();
-			return;
+			return true;
 		}
 
 		// const _address = addressRegex.exec(message)?.groups?.address;
 		const file = fileRegex.exec(message)?.groups?.file;
 		const line = parseInt(lineRegex.exec(message)?.groups?.line || '-1', 10);
 
-		if (!file || line < 0) { return; };
+		if (!file || line < 0) { return false; };
 		this._lastStop = [file, line];
+
+		// Assume we're setting this correctly and can trust it to early return if the stop is user generated in some sense
+		if (this._haltReason !== HaltReason.none) {
+			const eventToDispatch = haltReasonEventMap[this._haltReason];
+			this.emit(eventToDispatch);
+			return false; // Early return, as stopAt otherwise checks exceptions and breakpoints
+		}
 
 		// Find potential breakpoint based on file name and line - if this does not exist, it must be an exception.
 		const breakpoint = this._breakpoints.find(bp => (normalizePath(bp.file) === normalizePath(file)) && bp.line === line);
@@ -312,6 +317,7 @@ export class MDBCommunications extends EventEmitter {
 		}
 
 		this.emit('stopOnBreakpoint');
+		return false;
 	}
 
 	/** Sends a command to the Microchip Debugger and returns the whole response
@@ -452,14 +458,14 @@ export class MDBCommunications extends EventEmitter {
 				const prompt: IUserPrompt = {
 					title: 'User input needed',
 					message: question[0],
-					options: [ 'Yes', 'No' ]
+					options: ['Yes', 'No']
 				};
 
 				this.emit('userPrompt', prompt);
 
 				message = await this.readResult();
-			} 
-			
+			}
+
 			if (!message.match(/Target device (.+) found\./)) {
 				throw new Error(`Failed to connect to target device ${message.replace(/^\>+|\>+$/g, '').trim()}`);
 			}
@@ -480,8 +486,20 @@ export class MDBCommunications extends EventEmitter {
 
 	public async programDevice() {
 		// Program the chip
-		const programResult = await this._query(`Program "${this._elfFile}"`, ConnectionLevel.connected);
-		if (programResult.match(/Program succeeded\./) || programResult.match(/Programming\/Verify complete/)) {
+		let message = await this._query(`Program "${this._elfFile}"`, ConnectionLevel.connected);
+		let question: RegExpMatchArray | null;
+		while (question = message.match(/.*\?/)) {
+			const prompt: IUserPrompt = {
+				title: 'User input needed',
+				message: question[0],
+				options: ['Yes', 'No']
+			};
+
+			this.emit('userPrompt', prompt);
+
+			message = await this.readResult();
+		}
+		if (message.match(/Program succeeded\./) || message.match(/Programming\/Verify complete/)) {
 
 			this.connectionLevel = ConnectionLevel.programed;
 
@@ -637,9 +655,9 @@ export class MDBCommunications extends EventEmitter {
 		this.write(machineInstruction ? 'Stepi' : 'Step', ConnectionLevel.programed);
 	}
 
-	public next(): void {
+	public next(): Promise<string> {
 		this._haltReason = HaltReason.next;
-		this.write('Next', ConnectionLevel.programed);
+		return this._query('Next', ConnectionLevel.programed);
 	}
 
 	public halt(): void {
